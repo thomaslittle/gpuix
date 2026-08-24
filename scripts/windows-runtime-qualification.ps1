@@ -120,4 +120,8 @@ Invoke-Checked 'live Windows runtime qualification' {
   bun scripts/windows-runtime-qualification.ts
 }
 
-Write-Host "`nWindows x64 qualification command completed. Review tmp/windows-runtime/*/evidence.md before promoting support status." -ForegroundColor Green
+Invoke-Checked 'same-window React root remount qualification' {
+  bun scripts/windows-remount-qualification.ts
+}
+
+Write-Host "`nWindows x64 qualification command completed. Review tmp/windows-runtime/* evidence before promoting support status." -ForegroundColor Green
