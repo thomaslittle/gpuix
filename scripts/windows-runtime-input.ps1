@@ -3,7 +3,7 @@ param(
   [int]$ProcessId,
 
   [Parameter(Mandatory = $true)]
-  [ValidateSet('window-info', 'activate', 'send-keys', 'wheel', 'resize', 'resize-storm', 'clipboard-paste', 'screenshot', 'close')]
+  [ValidateSet('window-info', 'activate', 'send-keys', 'wheel', 'resize', 'resize-storm', 'minimize', 'maximize', 'restore', 'clipboard-paste', 'screenshot', 'close')]
   [string]$Action,
 
   [string]$Keys = '',
@@ -79,6 +79,17 @@ namespace GpuixWindowsQualification {
       int cy,
       uint flags
     );
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int command);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsZoomed(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -160,6 +171,8 @@ switch ($Action) {
       height = $rect.Bottom - $rect.Top
       clientWidth = $client.width
       clientHeight = $client.height
+      minimized = [GpuixWindowsQualification.NativeMethods]::IsIconic($handle)
+      maximized = [GpuixWindowsQualification.NativeMethods]::IsZoomed($handle)
       dpi = $dpi
       scalePercent = if ($dpi -gt 0) { [math]::Round(($dpi / 96.0) * 100, 2) } else { $null }
     } | ConvertTo-Json -Compress
@@ -217,6 +230,24 @@ switch ($Action) {
     if (-not [GpuixWindowsQualification.NativeMethods]::SetWindowPos($handle, [IntPtr]::Zero, 0, 0, $Width, $Height, $flags)) {
       throw 'SetWindowPos failed while restoring final resize-storm dimensions'
     }
+    break
+  }
+
+  'minimize' {
+    [void][GpuixWindowsQualification.NativeMethods]::ShowWindow($handle, 6) # SW_MINIMIZE
+    Start-Sleep -Milliseconds 120
+    break
+  }
+
+  'maximize' {
+    [void][GpuixWindowsQualification.NativeMethods]::ShowWindow($handle, 3) # SW_MAXIMIZE
+    Start-Sleep -Milliseconds 120
+    break
+  }
+
+  'restore' {
+    [void][GpuixWindowsQualification.NativeMethods]::ShowWindow($handle, 9) # SW_RESTORE
+    Start-Sleep -Milliseconds 120
     break
   }
 
