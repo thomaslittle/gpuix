@@ -21,7 +21,7 @@ function Invoke-Checked {
   }
 }
 
-if (-not $IsWindows -and $PSVersionTable.PSEdition -eq 'Core') {
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
   throw 'Windows runtime qualification must run on Windows.'
 }
 
