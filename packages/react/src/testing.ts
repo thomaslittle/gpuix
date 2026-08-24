@@ -132,6 +132,7 @@ export interface TestElement {
   events: Set<string>
   children: number[]
   parentId: number | null
+  testId?: string
   customProps?: Record<string, unknown>
 }
 
@@ -369,6 +370,7 @@ export class TestRenderer implements NativeRenderer {
         events: new Set(node.events ?? []),
         children: (node.children ?? []).map((c: any) => c.id),
         parentId,
+        ...(node.testId ? { testId: node.testId } : {}),
         ...(node.customProps ? { customProps: node.customProps } : {}),
       })
       for (const child of node.children ?? []) {
@@ -401,6 +403,10 @@ export class TestRenderer implements NativeRenderer {
     return [...this.buildElementMap().values()].find(
       (el) => el.text != null && el.text.includes(text)
     )
+  }
+
+  findByTestId(testId: string): TestElement | undefined {
+    return [...this.buildElementMap().values()].find((el) => el.testId === testId)
   }
 
   /** Get all text content in the tree (depth-first). */

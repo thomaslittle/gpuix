@@ -169,6 +169,28 @@ describeNative("native text editors", () => {
     expect(testRoot.renderer.getAllText()).toContain("Value: abc")
   })
 
+  it("moves by words with alt-left and alt-right on macOS", () => {
+    function TextInput() {
+      const [text, setText] = useState("hello world")
+      return (
+        <div style={{ width: 400, height: 100 }}>
+          <input
+            value={text}
+            style={{ width: 300, height: 40 }}
+            onChange={(event: EventPayload) => setText(event.value ?? "")}
+          />
+          <text>{`Value: ${text}`}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<TextInput />)
+    const input = testRoot.renderer.findByType("input")[0]
+    testRoot.renderer.nativeSimulateKeystrokes(input.id, "alt-left X alt-right Y")
+
+    expect(testRoot.renderer.getAllText()).toContain("Value: hello XworldY")
+  })
+
   it("blocks editing when readOnly", () => {
     function TextInput() {
       const [text, setText] = useState("locked")

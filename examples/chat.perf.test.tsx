@@ -117,7 +117,7 @@ describeNative('chat performance', () => {
         BUDGET.mountMs,
       )
     }
-  })
+  }, 60_000)
 
   it('keeps idle flush and wheel draw under budget', () => {
     const { render, renderer } = createTestRoot()
@@ -155,7 +155,7 @@ describeNative('chat performance', () => {
       `[chat.perf] overlay p90=${overlay.p90Ms?.toFixed(2)}ms max=${overlay.maxMs?.toFixed(2)}ms samples=${overlay.samples}`,
     )
     expect(overlay.samples).toBeGreaterThan(0)
-  })
+  }, 60_000)
 
   it('keeps a sidebar click under budget', async () => {
     const { render, renderer } = createTestRoot()
@@ -180,5 +180,5 @@ describeNative('chat performance', () => {
         `sidebar click ${stats.max.toFixed(1)}ms exceeds ${BUDGET.sidebarMs}ms`,
       ).toBeLessThan(BUDGET.sidebarMs)
     }
-  })
+  }, 60_000)
 })

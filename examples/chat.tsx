@@ -18,7 +18,6 @@ import {
   motion,
   render,
   Select,
-  VirtualList,
   SelectContent,
   SelectItem,
   SelectLabel,
@@ -633,6 +632,7 @@ function UserTurn({ text }: { text: string }) {
       <div
         style={{
           maxWidth: 540,
+          minWidth: 0,
           backgroundColor: C.raised,
           borderRadius: 12,
           paddingTop: 8,
@@ -641,7 +641,7 @@ function UserTurn({ text }: { text: string }) {
           paddingRight: 12,
         }}
       >
-        <text style={{ fontSize: 14, lineHeight: 20, color: C.text }}>{text}</text>
+        <text style={{ fontSize: 14, lineHeight: 20, color: C.text, minWidth: 0, maxWidth: '100%' }}>{text}</text>
       </div>
     </div>
   )
@@ -729,43 +729,35 @@ const Transcript = memo(function Transcript({
   includeSafeMdx?: boolean
   listRef?: React.Ref<{ id: number }>
 }) {
-  const extra = includeSafeMdx ? 1 : 0
   return (
-    <VirtualList
+    <virtual-list
       ref={listRef}
-      itemCount={turns.length + extra}
       overdraw={240}
       estimatedItemHeight={220}
       style={{ flexGrow: 1, minHeight: 0, width: '100%' }}
-      renderItem={(index) => {
-        if (includeSafeMdx && index === 0) {
-          return (
-            <TranscriptRow key="safemdx" first>
-              <UserTurn text="Can Markdown be composed as normal React elements instead?" />
-              <SafeMdxContent source={SAFE_MDX_STRESS} />
-            </TranscriptRow>
-          )
-        }
-        const turnIndex = index - extra
-        const turn = turns[turnIndex]
-        if (!turn) return null
-        return (
-          <TranscriptRow
-            key={turnIndex}
-            first={!includeSafeMdx && turnIndex === 0}
-            last={turnIndex === turns.length - 1}
-          >
-            {turn.kind === 'user' && <UserTurn text={turn.text} />}
-            {turn.kind === 'fold' && <WorkedFor duration={turn.duration} />}
-            {turn.kind === 'markdown' && <markdown source={turn.source} theme={CHAT_THEME} />}
-            {turn.kind === 'code' && (
-              <code code={turn.source} language={turn.language} showLineNumbers theme={CHAT_THEME} />
-            )}
-            {turn.kind === 'diff' && <diff patch={turn.patch} wordDiff theme={CHAT_THEME} />}
-          </TranscriptRow>
-        )
-      }}
-    />
+    >
+      {includeSafeMdx && (
+        <TranscriptRow key="safemdx" first>
+          <UserTurn text="Can Markdown be composed as normal React elements instead?" />
+          <SafeMdxContent source={SAFE_MDX_STRESS} />
+        </TranscriptRow>
+      )}
+      {turns.map((turn, index) => (
+        <TranscriptRow
+          key={index}
+          first={!includeSafeMdx && index === 0}
+          last={index === turns.length - 1}
+        >
+          {turn.kind === 'user' && <UserTurn text={turn.text} />}
+          {turn.kind === 'fold' && <WorkedFor duration={turn.duration} />}
+          {turn.kind === 'markdown' && <SafeMdxContent source={turn.source} />}
+          {turn.kind === 'code' && (
+            <code code={turn.source} language={turn.language} showLineNumbers theme={CHAT_THEME} />
+          )}
+          {turn.kind === 'diff' && <diff patch={turn.patch} wordDiff theme={CHAT_THEME} />}
+        </TranscriptRow>
+      ))}
+    </virtual-list>
   )
 })
 
@@ -1497,30 +1489,38 @@ function MdxCell({ children, header }: MdxChildren & { header?: boolean }) {
 
 function MdxBlock({ children }: MdxChildren) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', minWidth: 0 }}>
       {children}
     </div>
   )
 }
 
+const MD_TEXT = {
+  fontSize: 15,
+  lineHeight: 26,
+  color: C.text,
+  maxWidth: '100%',
+  minWidth: 0,
+} as const
+
 function MdxInline({ children, style }: MdxChildren & { style?: StyleDesc }) {
-  return <text style={{ fontSize: 15, lineHeight: 26, color: C.text, ...style }}>{children}</text>
+  return <text style={{ ...MD_TEXT, ...style }}>{children}</text>
 }
 
-const SAFE_MDX_COMPONENTS = {
-  h1: ({ children }: MdxChildren) => (
-    <text style={{ fontSize: 22, lineHeight: 30, fontWeight: 700, color: C.text }}>{children}</text>
-  ),
-  h2: ({ children }: MdxChildren) => (
-    <text style={{ fontSize: 18, lineHeight: 26, fontWeight: 700, color: C.text }}>{children}</text>
-  ),
-  h3: ({ children }: MdxChildren) => (
-    <text style={{ fontSize: 16, lineHeight: 24, fontWeight: 700, color: C.text }}>{children}</text>
-  ),
-  h4: MdxInline,
-  h5: MdxInline,
-  h6: MdxInline,
-  p: ({ children }: MdxChildren) => (
+function mdxStringChild(children: React.ReactNode) {
+  const items = React.Children.toArray(children)
+  if (items.length === 1 && (typeof items[0] === 'string' || typeof items[0] === 'number')) {
+    return items[0]
+  }
+  return null
+}
+
+function MdxParagraph({ children }: MdxChildren) {
+  const only = mdxStringChild(children)
+  if (only != null) {
+    return <text style={{ ...MD_TEXT, width: '100%' }}>{only}</text>
+  }
+  return (
     <div
       style={{
         display: 'flex',
@@ -1528,18 +1528,47 @@ const SAFE_MDX_COMPONENTS = {
         flexWrap: 'wrap',
         alignItems: 'start',
         width: '100%',
+        minWidth: 0,
         fontSize: 15,
         lineHeight: 26,
         color: C.text,
       }}
     >
-      {children}
+      {React.Children.map(children, (child) =>
+        typeof child === 'string' || typeof child === 'number' ? (
+          <text style={MD_TEXT}>{child}</text>
+        ) : (
+          child
+        ),
+      )}
     </div>
+  )
+}
+
+const SAFE_MDX_COMPONENTS = {
+  h1: ({ children }: MdxChildren) => (
+    <text style={{ fontSize: 22, lineHeight: 30, fontWeight: 700, color: C.text, maxWidth: '100%', minWidth: 0 }}>
+      {children}
+    </text>
   ),
+  h2: ({ children }: MdxChildren) => (
+    <text style={{ fontSize: 18, lineHeight: 26, fontWeight: 700, color: C.text, maxWidth: '100%', minWidth: 0 }}>
+      {children}
+    </text>
+  ),
+  h3: ({ children }: MdxChildren) => (
+    <text style={{ fontSize: 16, lineHeight: 24, fontWeight: 700, color: C.text, maxWidth: '100%', minWidth: 0 }}>
+      {children}
+    </text>
+  ),
+  h4: MdxInline,
+  h5: MdxInline,
+  h6: MdxInline,
+  p: MdxParagraph,
   blockquote: ({ children }: MdxChildren) => (
-    <div style={{ display: 'flex', flexDirection: 'row', gap: 12, width: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'row', gap: 12, width: '100%', minWidth: 0 }}>
       <div style={{ width: 3, flexShrink: 0, backgroundColor: C.accent }} />
-      <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, gap: 6, color: C.secondary }}>
+      <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0, gap: 6, color: C.secondary }}>
         {children}
       </div>
     </div>
@@ -1550,14 +1579,19 @@ const SAFE_MDX_COMPONENTS = {
   li: ({
     children,
     'data-checked': checked,
-  }: MdxChildren & { 'data-checked'?: boolean }) => (
-    <div style={{ display: 'flex', flexDirection: 'row', gap: 9, width: '100%' }}>
-      <text style={{ fontSize: 15, lineHeight: 26, color: C.secondary }}>
-        {checked === undefined ? '•' : checked ? '✓' : '○'}
-      </text>
-      <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>{children}</div>
-    </div>
-  ),
+  }: MdxChildren & { 'data-checked'?: boolean }) => {
+    const only = mdxStringChild(children)
+    return (
+      <div style={{ display: 'flex', flexDirection: 'row', gap: 9, width: '100%', minWidth: 0 }}>
+        <text style={{ fontSize: 15, lineHeight: 26, color: C.secondary, flexShrink: 0 }}>
+          {checked === undefined ? '•' : checked ? '✓' : '○'}
+        </text>
+        <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0 }}>
+          {only != null ? <text style={{ ...MD_TEXT, width: '100%' }}>{only}</text> : children}
+        </div>
+      </div>
+    )
+  },
   strong: ({ children }: MdxChildren) => <MdxInline style={{ fontWeight: 700 }}>{children}</MdxInline>,
   em: ({ children }: MdxChildren) => <MdxInline style={{ color: C.secondary }}>{children}</MdxInline>,
   del: ({ children }: MdxChildren) => <MdxInline style={{ color: C.ghost }}>{children}</MdxInline>,
@@ -1634,10 +1668,10 @@ function parseMdx(source: string) {
   return tree
 }
 
-function SafeMdxContent({ source }: { source: string }) {
+export function SafeMdxContent({ source }: { source: string }) {
   const mdast = useMemo(() => parseMdx(source), [source])
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%', minWidth: 0 }}>
       <SafeMdxRenderer
         markdown={source}
         mdast={mdast}
@@ -1783,7 +1817,7 @@ export function ChatApp({
 
 const isEntryPoint =
   typeof Bun !== 'undefined'
-    ? Bun.main === import.meta.path
+    ? Bun.isStandaloneExecutable || Bun.main === import.meta.path
     : process.argv[1]?.endsWith('chat.tsx')
 
 if (isEntryPoint) {

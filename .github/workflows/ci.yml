@@ -28,24 +28,30 @@ jobs:
           # default features include test-support (TestGpuixRenderer)
           - host: macos-latest
             target: aarch64-apple-darwin
+            bunTarget: bun-darwin-arm64
             build: bun run build --target aarch64-apple-darwin
           - host: macos-latest
             target: x86_64-apple-darwin
+            bunTarget: bun-darwin-x64
             build: bun run build --target x86_64-apple-darwin
           # ── Linux (Vulkan/wgpu) ────────────────────────────────────
           # build:release skips test-support (pulls gpui_macos, macOS-only)
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            bunTarget: bun-linux-x64
             build: bun run build:release --target x86_64-unknown-linux-gnu
           - host: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            bunTarget: bun-linux-arm64
             build: bun run build:release --target aarch64-unknown-linux-gnu
           # ── Windows (Direct3D/wgpu) ────────────────────────────────
           - host: windows-latest
             target: x86_64-pc-windows-msvc
+            bunTarget: bun-windows-x64
             build: bun run build:release --target x86_64-pc-windows-msvc
           - host: windows-latest
             target: aarch64-pc-windows-msvc
+            bunTarget: bun-windows-arm64
             build: bun run build:release --target aarch64-pc-windows-msvc
     name: build - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
@@ -120,6 +126,28 @@ jobs:
         with:
           name: bindings-${{ matrix.settings.target }}
           path: packages/native/${{ env.APP_NAME }}.*.node
+          if-no-files-found: error
+
+      - name: Build React package
+        working-directory: packages/react
+        shell: bash
+        run: bun run build
+
+      - name: Compile chat example
+        working-directory: examples
+        shell: bash
+        env:
+          COMPILE_OUT: example-chat-${{ matrix.settings.target }}
+          COMPILE_TARGET: ${{ matrix.settings.bunTarget }}
+          COMPILE_SKIP_ICONS: "1"
+          COMPILE_SKIP_APP: "1"
+        run: bun compile-chat.ts
+
+      - name: Upload example artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-chat-${{ matrix.settings.target }}
+          path: examples/dist/example-chat-${{ matrix.settings.target }}*
           if-no-files-found: error
 
   test:
@@ -204,9 +232,10 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Download all artifacts
+      - name: Download native artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: bindings-*
           path: packages/native/artifacts
 
       - name: Create npm dirs and move artifacts
@@ -261,3 +290,31 @@ jobs:
             "
             bunx sigillo run --command 'printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > /tmp/gpuix-npmrc && NPM_CONFIG_USERCONFIG=/tmp/gpuix-npmrc npm publish --access public --provenance'
           fi
+
+      - name: Download example artifacts
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: example-chat-*
+          path: example-artifacts
+          merge-multiple: true
+
+      - name: Upload example binaries to GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./packages/react/package.json').version")
+          TAG="@gpuix/react@${VERSION}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "No GitHub release for ${TAG}, skipping example upload"
+            exit 0
+          fi
+          shopt -s nullglob
+          files=(example-artifacts/example-chat-*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No example binaries to upload"
+            exit 0
+          fi
+          echo "Uploading example-chat binaries to ${TAG}"
+          gh release upload "$TAG" "${files[@]}" --clobber

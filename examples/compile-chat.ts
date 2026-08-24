@@ -1,9 +1,11 @@
 /**
  * Compile the Waku-style chat example into a standalone Bun binary.
  * On macOS also wraps it in a .app so Finder and Dock can show a custom icon.
+ *
+ * CI sets COMPILE_OUT, COMPILE_TARGET, COMPILE_SKIP_ICONS, COMPILE_SKIP_APP.
  */
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -13,12 +15,31 @@ const SVG = path.join(ROOT, 'assets', 'icons', 'openai-mark.svg')
 const PNG = path.join(DIST, 'app-icon.png')
 const ICO = path.join(DIST, 'app-icon.ico')
 const ICNS = path.join(DIST, 'app-icon.icns')
-const BINARY = path.join(DIST, process.platform === 'win32' ? 'chat.exe' : 'chat')
+const COMPILE_TARGET = process.env.COMPILE_TARGET
+const WINDOWS =
+  process.platform === 'win32' || (COMPILE_TARGET ?? '').includes('windows')
+const BINARY = path.join(DIST, outputName())
 const APP_NAME = 'GPUIX Chat'
 const APP_BUNDLE = path.join(DIST, `${APP_NAME}.app`)
 
+function outputName(): string {
+  const requested = process.env.COMPILE_OUT
+  if (requested) {
+    return WINDOWS && !requested.endsWith('.exe') ? `${requested}.exe` : requested
+  }
+  return WINDOWS ? 'chat.exe' : 'chat'
+}
+
 function log(message: string): void {
   console.log(`[compile-chat] ${message}`)
+}
+
+function hasCommand(command: string): boolean {
+  const result = spawnSync(command, ['--version'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  return result.status === 0
 }
 
 function run(command: string, args: string[], opts: { cwd?: string } = {}): void {
@@ -38,6 +59,15 @@ function run(command: string, args: string[], opts: { cwd?: string } = {}): void
 }
 
 async function buildIcons(): Promise<void> {
+  if (process.env.COMPILE_SKIP_ICONS === '1') {
+    log('skipping icons')
+    return
+  }
+  if (!hasCommand('rsvg-convert') || !hasCommand('magick')) {
+    log('rsvg-convert or magick missing, skipping icons')
+    return
+  }
+
   log(`building icons from ${path.relative(ROOT, SVG)}`)
   const svg = (await Bun.file(SVG).text()).replace(
     'fill="currentColor"',
@@ -90,8 +120,9 @@ async function compileBinary(): Promise<void> {
   log('bundling chat.tsx into a standalone binary')
   const compile: {
     outfile: string
+    target?: string
     windows?: {
-      icon: string
+      icon?: string
       hideConsole: boolean
       title: string
       publisher: string
@@ -101,14 +132,20 @@ async function compileBinary(): Promise<void> {
   } = {
     outfile: BINARY,
   }
-  if (process.platform === 'win32') {
+  if (COMPILE_TARGET) {
+    compile.target = COMPILE_TARGET
+    log(`target ${COMPILE_TARGET}`)
+  }
+  if (WINDOWS) {
     compile.windows = {
-      icon: ICO,
       hideConsole: true,
       title: APP_NAME,
       publisher: 'GPUIX',
       version: '0.1.0',
       description: 'Waku-style desktop app built with GPUIX',
+    }
+    if (process.platform === 'win32' && existsSync(ICO)) {
+      compile.windows.icon = ICO
     }
   }
 
@@ -126,7 +163,10 @@ async function compileBinary(): Promise<void> {
 }
 
 function wrapMacApp(): void {
+  if (process.env.COMPILE_SKIP_APP === '1') return
   if (process.platform !== 'darwin') return
+  if (COMPILE_TARGET && !COMPILE_TARGET.includes('darwin')) return
+
   log(`wrapping ${path.relative(ROOT, BINARY)} in ${path.basename(APP_BUNDLE)}`)
   rmSync(APP_BUNDLE, { recursive: true, force: true })
   const macos = path.join(APP_BUNDLE, 'Contents', 'MacOS')
@@ -137,8 +177,13 @@ function wrapMacApp(): void {
   const executable = path.join(macos, 'chat')
   run('cp', [BINARY, executable])
   run('chmod', ['+x', executable])
-  run('cp', [ICNS, path.join(resources, 'AppIcon.icns')])
+  if (existsSync(ICNS)) {
+    run('cp', [ICNS, path.join(resources, 'AppIcon.icns')])
+  }
 
+  const iconEntries = existsSync(ICNS)
+    ? ['  <key>CFBundleIconFile</key>', '  <string>AppIcon</string>']
+    : []
   const plist = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
@@ -150,8 +195,7 @@ function wrapMacApp(): void {
     `  <string>${APP_NAME}</string>`,
     '  <key>CFBundleExecutable</key>',
     '  <string>chat</string>',
-    '  <key>CFBundleIconFile</key>',
-    '  <string>AppIcon</string>',
+    ...iconEntries,
     '  <key>CFBundleIdentifier</key>',
     '  <string>dev.gpuix.chat</string>',
     '  <key>CFBundleInfoDictionaryVersion</key>',
@@ -185,7 +229,7 @@ async function main(): Promise<void> {
   await compileBinary()
   wrapMacApp()
   log('done')
-  if (process.platform === 'darwin') {
+  if (process.platform === 'darwin' && existsSync(APP_BUNDLE)) {
     log(`run: open "${APP_BUNDLE}"`)
   } else {
     log(`run: ${BINARY}`)

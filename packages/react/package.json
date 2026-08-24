@@ -1,6 +1,7 @@
 {
   "name": "@gpuix/react",
   "version": "0.4.0",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -51,7 +52,8 @@
     "jsx-runtime.js",
     "jsx-runtime.d.ts",
     "jsx-dev-runtime.js",
-    "jsx-dev-runtime.d.ts"
+    "jsx-dev-runtime.d.ts",
+    "LICENSE"
   ],
   "repository": {
     "type": "git",
@@ -63,7 +65,7 @@
   },
   "scripts": {
     "prepublishOnly": "node -e \"if (!process.env.CI) { console.error('Never publish @gpuix/react locally. CI is the only release path. See AGENTS.md.'); process.exit(1) }\"",
-    "build": "rm -rf dist *.tsbuildinfo && tsc",
+    "build": "rm -rf dist && tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest"

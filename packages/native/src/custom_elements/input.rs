@@ -85,12 +85,21 @@ fn single_line_text(text: &str) -> String {
 }
 
 pub fn init(cx: &mut App) {
-    let mut bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false);
-    bindings.extend(text_editor_bindings(TEXTAREA_KEY_CONTEXT, true));
+    let word_navigation_uses_alt = word_navigation_uses_alt();
+    let mut bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, word_navigation_uses_alt);
+    bindings.extend(text_editor_bindings(
+        TEXTAREA_KEY_CONTEXT,
+        true,
+        word_navigation_uses_alt,
+    ));
     cx.bind_keys(bindings);
 }
 
-fn text_editor_bindings(context: &'static str, multiline: bool) -> Vec<KeyBinding> {
+fn text_editor_bindings(
+    context: &'static str,
+    multiline: bool,
+    word_navigation_uses_alt: bool,
+) -> Vec<KeyBinding> {
     let context = Some(context);
     let mut bindings = vec![
         KeyBinding::new("enter", Submit, context),
@@ -125,7 +134,7 @@ fn text_editor_bindings(context: &'static str, multiline: bool) -> Vec<KeyBindin
         ]);
     }
 
-    let word_prefix = if cfg!(target_os = "macos") {
+    let word_prefix = if word_navigation_uses_alt {
         "alt"
     } else {
         "ctrl"
@@ -157,6 +166,28 @@ fn text_editor_bindings(context: &'static str, multiline: bool) -> Vec<KeyBindin
         ]);
     }
     bindings
+}
+
+fn browser_platform_is_macos(platform: &str, user_agent: &str) -> bool {
+    platform.starts_with("Mac")
+        || user_agent.contains("Macintosh")
+        || user_agent.contains("Mac OS X")
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn word_navigation_uses_alt() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let navigator = window.navigator();
+    let platform = navigator.platform().unwrap_or_default();
+    let user_agent = navigator.user_agent().unwrap_or_default();
+    browser_platform_is_macos(&platform, &user_agent)
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn word_navigation_uses_alt() -> bool {
+    cfg!(target_os = "macos")
 }
 
 pub struct InputFactory;
@@ -1539,6 +1570,51 @@ impl gpui::IntoElement for EditorTextElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn has_binding(bindings: &[KeyBinding], keystroke: &str, action: &dyn gpui::Action) -> bool {
+        let keystroke = gpui::Keystroke::parse(keystroke).unwrap();
+        bindings.iter().any(|binding| {
+            binding.match_keystrokes(std::slice::from_ref(&keystroke)) == Some(false)
+                && binding.action().partial_eq(action)
+        })
+    }
+
+    #[test]
+    fn macos_word_navigation_uses_alt() {
+        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true);
+
+        assert!(has_binding(&bindings, "alt-left", &WordLeft));
+        assert!(has_binding(&bindings, "alt-right", &WordRight));
+        assert!(!has_binding(&bindings, "ctrl-left", &WordLeft));
+        assert!(!has_binding(&bindings, "ctrl-right", &WordRight));
+    }
+
+    #[test]
+    fn non_macos_word_navigation_uses_control() {
+        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, false);
+
+        assert!(has_binding(&bindings, "ctrl-left", &WordLeft));
+        assert!(has_binding(&bindings, "ctrl-right", &WordRight));
+        assert!(!has_binding(&bindings, "alt-left", &WordLeft));
+        assert!(!has_binding(&bindings, "alt-right", &WordRight));
+    }
+
+    #[test]
+    fn browser_platform_detection_recognizes_macos() {
+        assert!(browser_platform_is_macos("MacIntel", ""));
+        assert!(browser_platform_is_macos(
+            "Unknown",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+        ));
+        assert!(!browser_platform_is_macos(
+            "Win32",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        ));
+        assert!(!browser_platform_is_macos(
+            "Linux x86_64",
+            "Mozilla/5.0 (X11; Linux x86_64)"
+        ));
+    }
 
     #[test]
     fn ime_offsets_are_relative_to_replacement_text() {
