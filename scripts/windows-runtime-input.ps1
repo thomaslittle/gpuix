@@ -3,11 +3,12 @@ param(
   [int]$ProcessId,
 
   [Parameter(Mandatory = $true)]
-  [ValidateSet('window-info', 'activate', 'send-keys', 'wheel', 'resize', 'resize-storm', 'clipboard-paste', 'close')]
+  [ValidateSet('window-info', 'activate', 'send-keys', 'wheel', 'resize', 'resize-storm', 'clipboard-paste', 'screenshot', 'close')]
   [string]$Action,
 
   [string]$Keys = '',
   [string]$Text = '',
+  [string]$Path = '',
   [double]$X = 0,
   [double]$Y = 0,
   [int]$WheelDelta = -120,
@@ -18,6 +19,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 
 if (-not ('GpuixWindowsQualification.NativeMethods' -as [type])) {
   Add-Type -TypeDefinition @'
@@ -92,6 +94,14 @@ function Get-GpuixProcessWindow {
   return @($process, $handle)
 }
 
+function Get-WindowRectChecked([IntPtr]$Handle) {
+  $rect = New-Object GpuixWindowsQualification.NativeMethods+RECT
+  if (-not [GpuixWindowsQualification.NativeMethods]::GetWindowRect($Handle, [ref]$rect)) {
+    throw "GetWindowRect failed for process $ProcessId"
+  }
+  return $rect
+}
+
 function Activate-Window([IntPtr]$Handle) {
   if (-not [GpuixWindowsQualification.NativeMethods]::SetForegroundWindow($Handle)) {
     throw "SetForegroundWindow failed for process $ProcessId"
@@ -105,10 +115,7 @@ $handle = [IntPtr]$window[1]
 
 switch ($Action) {
   'window-info' {
-    $rect = New-Object GpuixWindowsQualification.NativeMethods+RECT
-    if (-not [GpuixWindowsQualification.NativeMethods]::GetWindowRect($handle, [ref]$rect)) {
-      throw "GetWindowRect failed for process $ProcessId"
-    }
+    $rect = Get-WindowRectChecked $handle
 
     $dpi = 0
     try {
@@ -191,6 +198,32 @@ switch ($Action) {
     Activate-Window $handle
     Set-Clipboard -Value $Text
     [System.Windows.Forms.SendKeys]::SendWait('^v')
+    break
+  }
+
+  'screenshot' {
+    if ([string]::IsNullOrEmpty($Path)) {
+      throw '-Path is required for screenshot'
+    }
+    Activate-Window $handle
+    $rect = Get-WindowRectChecked $handle
+    $width = $rect.Right - $rect.Left
+    $height = $rect.Bottom - $rect.Top
+    if ($width -le 0 -or $height -le 0) {
+      throw "Window has invalid capture dimensions ${width}x${height}"
+    }
+
+    $directory = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($Path))
+    [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+    $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+      $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+      $bitmap.Save([System.IO.Path]::GetFullPath($Path), [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+      $graphics.Dispose()
+      $bitmap.Dispose()
+    }
     break
   }
 
