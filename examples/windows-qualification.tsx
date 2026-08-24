@@ -11,7 +11,12 @@ const buttonStyle = {
   cursor: 'pointer',
 } as const
 
-function WindowsQualificationApp() {
+type QualificationAppProps = {
+  generation: number
+  onRemount: () => void
+}
+
+function WindowsQualificationApp({ generation, onRemount }: QualificationAppProps) {
   const [count, setCount] = useState(0)
   const [hovered, setHovered] = useState(false)
   const [keyboardEvents, setKeyboardEvents] = useState(0)
@@ -60,8 +65,14 @@ function WindowsQualificationApp() {
         color: '#cdd6f4',
       }}
     >
-      <div testId="render-status" style={{ fontSize: 20, fontWeight: 'bold' }}>
-        render:ready
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div testId="render-status" style={{ fontSize: 20, fontWeight: 'bold' }}>
+          render:ready
+        </div>
+        <div testId="root-generation">root-generation:{generation}</div>
+        <div testId="remount-root" style={buttonStyle} onClick={onRemount}>
+          remount root
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -205,8 +216,25 @@ function WindowsQualificationApp() {
   )
 }
 
-render(<WindowsQualificationApp />, {
+const windowOptions = {
   title: 'GPUIX Windows Runtime Qualification',
   width: 980,
   height: 760,
-})
+} as const
+
+let rootGeneration = 0
+
+function mountQualificationRoot() {
+  render(
+    <WindowsQualificationApp
+      generation={rootGeneration}
+      onRemount={() => {
+        rootGeneration += 1
+        queueMicrotask(mountQualificationRoot)
+      }}
+    />,
+    windowOptions
+  )
+}
+
+mountQualificationRoot()
