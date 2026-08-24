@@ -51,6 +51,10 @@ namespace GpuixWindowsQualification {
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+
+    [DllImport("user32.dll")]
     public static extern uint GetDpiForWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
@@ -102,6 +106,25 @@ function Get-WindowRectChecked([IntPtr]$Handle) {
   return $rect
 }
 
+function Get-ClientCaptureRect([IntPtr]$Handle) {
+  $client = New-Object GpuixWindowsQualification.NativeMethods+RECT
+  if (-not [GpuixWindowsQualification.NativeMethods]::GetClientRect($Handle, [ref]$client)) {
+    throw "GetClientRect failed for process $ProcessId"
+  }
+  $origin = New-Object GpuixWindowsQualification.NativeMethods+POINT
+  $origin.X = 0
+  $origin.Y = 0
+  if (-not [GpuixWindowsQualification.NativeMethods]::ClientToScreen($Handle, [ref]$origin)) {
+    throw "ClientToScreen failed for process $ProcessId"
+  }
+  return [pscustomobject]@{
+    left = $origin.X
+    top = $origin.Y
+    width = $client.Right - $client.Left
+    height = $client.Bottom - $client.Top
+  }
+}
+
 function Activate-Window([IntPtr]$Handle) {
   if (-not [GpuixWindowsQualification.NativeMethods]::SetForegroundWindow($Handle)) {
     throw "SetForegroundWindow failed for process $ProcessId"
@@ -116,6 +139,7 @@ $handle = [IntPtr]$window[1]
 switch ($Action) {
   'window-info' {
     $rect = Get-WindowRectChecked $handle
+    $client = Get-ClientCaptureRect $handle
 
     $dpi = 0
     try {
@@ -134,6 +158,8 @@ switch ($Action) {
       bottom = $rect.Bottom
       width = $rect.Right - $rect.Left
       height = $rect.Bottom - $rect.Top
+      clientWidth = $client.width
+      clientHeight = $client.height
       dpi = $dpi
       scalePercent = if ($dpi -gt 0) { [math]::Round(($dpi / 96.0) * 100, 2) } else { $null }
     } | ConvertTo-Json -Compress
@@ -206,20 +232,42 @@ switch ($Action) {
       throw '-Path is required for screenshot'
     }
     Activate-Window $handle
-    $rect = Get-WindowRectChecked $handle
-    $width = $rect.Right - $rect.Left
-    $height = $rect.Bottom - $rect.Top
-    if ($width -le 0 -or $height -le 0) {
-      throw "Window has invalid capture dimensions ${width}x${height}"
+    $client = Get-ClientCaptureRect $handle
+    if ($client.width -le 0 -or $client.height -le 0) {
+      throw "Window has invalid client capture dimensions $($client.width)x$($client.height)"
     }
 
-    $directory = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($Path))
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $directory = [System.IO.Path]::GetDirectoryName($fullPath)
     [System.IO.Directory]::CreateDirectory($directory) | Out-Null
-    $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+    $bitmap = New-Object System.Drawing.Bitmap($client.width, $client.height)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     try {
-      $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
-      $bitmap.Save([System.IO.Path]::GetFullPath($Path), [System.Drawing.Imaging.ImageFormat]::Png)
+      $graphics.CopyFromScreen($client.left, $client.top, 0, 0, $bitmap.Size)
+      $bitmap.Save($fullPath, [System.Drawing.Imaging.ImageFormat]::Png)
+
+      $colors = New-Object 'System.Collections.Generic.HashSet[string]'
+      $samples = 0
+      $luma = 0.0
+      $stepX = [math]::Max(1, [math]::Floor($client.width / 24))
+      $stepY = [math]::Max(1, [math]::Floor($client.height / 18))
+      for ($sampleY = 0; $sampleY -lt $client.height; $sampleY += $stepY) {
+        for ($sampleX = 0; $sampleX -lt $client.width; $sampleX += $stepX) {
+          $pixel = $bitmap.GetPixel($sampleX, $sampleY)
+          [void]$colors.Add("$($pixel.R),$($pixel.G),$($pixel.B)")
+          $luma += ($pixel.R + $pixel.G + $pixel.B) / 3.0
+          $samples += 1
+        }
+      }
+
+      [pscustomobject]@{
+        path = $fullPath
+        width = $client.width
+        height = $client.height
+        samples = $samples
+        distinctColors = $colors.Count
+        averageLuma = if ($samples -gt 0) { [math]::Round($luma / $samples, 2) } else { 0 }
+      } | ConvertTo-Json -Compress
     } finally {
       $graphics.Dispose()
       $bitmap.Dispose()
