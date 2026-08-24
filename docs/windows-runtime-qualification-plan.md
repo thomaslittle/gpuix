@@ -27,6 +27,89 @@ The phrase **Windows runtime validation pending** should therefore be interprete
 
 Do not remove or weaken that warning until the acceptance matrix below is backed by retained evidence.
 
+## Progress log — 2026-08-24 harness batch
+
+Branch synchronization at the start of this batch found `feature/windows-runtime-qualification` **0 commits behind** both fork `main` and `remorses/gpuix:main`. The common upstream base was:
+
+- GPUIX upstream base: `9f0fb6d082d17acf6a570e93b0c987c1f3ffc944`
+- pinned Zed/GPUI submodule: `4d80927168182a26f2820f8d7a06495c6d050123`
+- pinned Rust toolchain: `1.97.1`
+
+The current branch now contains a repeatable Windows x64 qualification path instead of relying on ad-hoc manual launches:
+
+- `229261e32807a36ad0e3aee5e72f0a28fe748ffb` — reproducible Windows contributor/setup contract (`docs/windows-runtime-contributor-setup.md`)
+- `032d7d982484c9f02f6dd77b354f6587babd1068` — deterministic qualification fixture with real React state, focus/input, scroll, virtual-list, motion, stress, and same-window root remount controls
+- `fa82c0d0b5cee1eb4a458014c8e9de456bca80ef` — Win32 HWND helper for OS keyboard, wheel, resize, minimize/maximize/restore, clipboard, client screenshot sampling, DPI, and WM_CLOSE
+- `2d8da5ec21d1815c556d7e124523eae6d6743542` — live runtime controller covering unchanged stock examples plus the qualification fixture
+- `f915a0ed6bb7f6f360941ad7f548a1757465de62` — dedicated same-HWND React root remount proof
+- `e4a8fc76db8be9a43bd41ac0486a2313ebce7489` — one-command Windows build/test/runtime orchestration
+- `febf1cf1af9b967ead40482c38f02134291b7b13` — root package scripts exposing the qualification commands
+
+Primary command from an interactive Windows x64 Developer PowerShell/Command Prompt:
+
+```powershell
+bun run windows:qualify
+```
+
+That command is intentionally local-first and performs, in order:
+
+```text
+git/submodule/toolchain capture
+bun install --frozen-lockfile
+packages/native: bun run build:release --target x86_64-pc-windows-msvc
+bun run build:react
+Bun native-addon require/load
+Node native-addon require/load
+cargo test --manifest-path packages/native/Cargo.toml --no-default-features --lib
+packages/react: bun run test
+examples: bun run test
+bun scripts/windows-runtime-qualification.ts
+bun scripts/windows-remount-qualification.ts
+```
+
+Runtime evidence is written below ignored `tmp/windows-runtime/` as JSON/Markdown plus client-area screenshots and stdout/stderr logs. Every check is explicitly recorded as `PASS`, `FAIL`, or `NOT TESTED`.
+
+**Evidence status for this batch:** Windows runtime remains **NOT TESTED** here. The repository changes were authored/reviewed through the source repository, but this execution environment is not the target interactive Windows x64 machine. No runtime PASS is inferred from source presence, CI compilation, or the existence of the harness. The first actual Windows run must retain its generated evidence before support wording changes.
+
+### Static gaps identified while building the harness
+
+These are code-level findings, not runtime failure claims:
+
+1. **Live automation keyboard/wheel gap.** The production/live automation adapter supports real mouse dispatch on Windows/Linux/FreeBSD, but its live `scrollWheel`, `keystrokes`, `keyDown`, and `keyUp` paths currently return `Unsupported`. The native `TestGpuixRenderer` has corresponding GPUI simulation helpers. The Windows harness therefore injects keyboard/wheel through the real HWND/Win32 session and observes GPUIX state through the live automation bridge. A future framework patch should make the live protocol complete without weakening the real-window coverage.
+2. **Window-size API is not resize evidence yet.** `GpuixRenderer::get_window_size()` currently returns a fixed `800x600`. `useWindowSize()` only reads it once. The runtime harness deliberately verifies physical HWND dimensions with Win32 rather than using this API to manufacture a resize PASS. This should be reduced/fixed after the first Windows run demonstrates the desired GPUI window-size source/event semantics.
+3. **Native visual test renderer is macOS-only today.** `TestGpuixRenderer` constructs `gpui_macos::MacPlatform` / `VisualTestAppContext` and its screenshot path is documented as Metal/macOS. Extending the semantic visual-test API to the real Windows GPUI backend remains open P4.2 work.
+4. **Same-process multi-window support needs dedicated work.** Renderer comments explicitly describe shared scroll/virtual-list handle storage as singleton/single-window for now. The harness does not convert two separate processes into a fake same-process multi-window PASS.
+5. **Current Windows CI is build/load coverage, not runtime coverage.** `.github/workflows/ci.yml` builds Windows x64/ARM64 and verifies the x64 addon can be required by Bun and Node. No Windows runtime CI change is being added until the local interactive harness is proven trustworthy.
+
+### Checks implemented by the harness
+
+The first interactive Windows x64 run can now retain evidence for:
+
+- unchanged stock `counter` launch, paint, click/reconciliation, shutdown
+- unchanged stock `native-text` launch, native markdown/diff paint and interaction, shutdown
+- native HWND creation
+- non-uniform client-area painted pixels (screen-composited evidence rather than a model tree)
+- React mount and state reconciliation
+- mouse click and pointer enter/leave
+- programmatic focus
+- real OS keyboard input and Tab traversal
+- native `<input>` text entry
+- Unicode/emoji clipboard paste
+- real Win32 wheel scrolling plus GPUIX scroll-offset/event observation
+- virtual-list scroll/range churn
+- conditional mount/unmount
+- large keyed reorder
+- 120 repeated React commit cycles
+- deterministic native motion frames using the GPUIX clock plus physical screenshots
+- live resize and a 24-step resize storm
+- minimize/restore and maximize/restore
+- current-monitor DPI metadata
+- WM_CLOSE/process exit
+- close/reopen in a fresh process
+- same-native-HWND full React root remount with state reset and post-remount input/render proof
+
+The harness intentionally leaves these `NOT TESTED` until stronger evidence exists: multi-scale/mixed-monitor DPI, real IME composition, same-process multiple windows, direct live automation keyboard/wheel methods, React exception recovery, Rust panic containment, long-duration soak, and Windows ARM64 runtime.
+
 ---
 
 # Principles
@@ -426,7 +509,7 @@ Relevant log/artifact paths:
 Notes:
 ```
 
-A future `docs/windows-evidence/` or test-artifact convention may be introduced once the first local qualification run establishes what artifacts are actually useful. Avoid committing large opaque binary outputs unless they materially help reproduce a bug.
+The runtime harness writes this evidence under ignored `tmp/windows-runtime/`. Curated evidence may later move into `docs/windows-evidence/` once a real Windows run establishes which small artifacts are useful to retain in Git. Avoid committing large opaque binary outputs unless they materially help reproduce a bug.
 
 ---
 
@@ -461,19 +544,17 @@ Windows ARM64 remains **BUILD VERIFIED / RUNTIME NOT TESTED** until executed on 
 
 # First execution batch
 
-The first agent working this plan should do a substantial batch rather than stopping after setup:
+The first interactive Windows x64 execution of the harness should now:
 
-1. sync/compare against `remorses/gpuix:main`
-2. document exact Windows prerequisites discovered from the repo
-3. install dependencies on Windows
-4. initialize the Zed/GPUI submodule/pin
-5. build the Windows x64 native addon
-6. verify the addon loads
-7. run the smallest stock example
-8. run at least one interaction-rich stock example
-9. capture all concrete failures with minimal reproductions
-10. update this plan with exact PASS/FAIL/NOT TESTED results
-11. implement and test straightforward framework fixes exposed by the run
-12. commit changes in upstream-reviewable units
+1. pull `feature/windows-runtime-qualification` and confirm the exact branch SHA
+2. run `bun run windows:qualify`
+3. retain the generated `tmp/windows-runtime/*/evidence.md`, `evidence.json`, screenshots, and stderr/stdout logs long enough to diagnose any failure
+4. run the same-window remount probe (included automatically by the command)
+5. report every generated PASS/FAIL/NOT TESTED result without promoting unexecuted checks
+6. reduce the first FAIL to the smallest GPUIX reproduction
+7. fix it at the framework/GPUI abstraction that owns the bug
+8. rerun the whole qualification command after each coherent framework fix
+9. update this plan with the exact executed SHA, Windows build/GPU/toolchain, commands, and retained evidence
+10. only after the local harness is trustworthy, add a Windows runtime CI job where the hosted runner can provide meaningful interactive GPU/session evidence
 
 Do not start a downstream Crntly GPUIX spike until this Windows qualification work has established a credible runtime baseline.
