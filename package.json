@@ -10,7 +10,9 @@
     "build:native": "cd packages/native && bun run build",
     "build:react": "cd packages/react && bun run build",
     "example:counter": "cd examples && bun --hot counter.tsx",
-    "dev": "bun scripts/dev.ts"
+    "dev": "bun scripts/dev.ts",
+    "windows:qualify": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows-runtime-qualification.ps1",
+    "windows:qualify:runtime": "bun scripts/windows-runtime-qualification.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.0",
