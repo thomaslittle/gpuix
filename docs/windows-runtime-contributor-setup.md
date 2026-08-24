@@ -87,33 +87,31 @@ $env:PROCESSOR_ARCHITECTURE
 
 If `cl.exe`/SDK tools are not on `PATH`, run from a Developer PowerShell/Developer Command Prompt for Visual Studio or initialize the Visual Studio environment before building.
 
-## Build the shipping native path
+## Build the shipping Windows native path
 
-Do not qualify a debug native addon. The normal native build is release-mode and includes test support:
-
-```powershell
-bun run build:native
-```
-
-Equivalent package-local command:
+Do not qualify a debug native addon. On Windows use the same release path as CI and the publish artifacts:
 
 ```powershell
 cd packages/native
-bun run build
+bun run build:release --target x86_64-pc-windows-msvc
+cd ../..
 ```
 
-Then build the React package:
+This distinction matters today: `packages/native` also has a `build` script that enables the `test-support` feature, while the GPU-backed `TestGpuixRenderer` is still gated to macOS and constructs `gpui_macos::MacPlatform`. Windows qualification therefore uses `build:release`, not the macOS visual-test-support build.
+
+Build the React package separately:
 
 ```powershell
-cd ../..
 bun run build:react
 ```
 
-Or build both from the root:
+Upstream `6f4865b8b66c9175e42bce75310cbdfc9407104d` also removed an unused `*.tsbuildinfo` cleanup glob from the React build because Bun treats an unmatched glob as an error on Windows. A current branch should therefore show this package script:
 
-```powershell
-bun run build
+```text
+rm -rf dist && tsc
 ```
+
+The repository's `bun run windows:qualify` command performs the intended Windows native release build, React build, load checks, tests, and runtime checks in one sequence.
 
 ## Prove the produced addon loads
 
@@ -155,6 +153,8 @@ Do not infer any of those PASSes from a successful build.
 Repository-defined tests are:
 
 ```powershell
+cargo test --manifest-path packages/native/Cargo.toml --no-default-features --lib
+
 cd packages/react
 bun run test
 
@@ -164,8 +164,18 @@ bun run test
 
 The GPU-backed `TestGpuixRenderer` currently documents screenshot capture as macOS-only. Those tests are useful regression coverage, but they are not a substitute for the Windows live-window qualification path until the native/visual test renderer is extended to the Windows GPUI backend.
 
+## One-command qualification
+
+From an interactive Windows x64 developer shell:
+
+```powershell
+bun run windows:qualify
+```
+
+The command retains runtime evidence below ignored `tmp/windows-runtime/`. Inspect the generated `evidence.md`, `evidence.json`, screenshots, and process logs before changing any support claim.
+
 ## Evidence status
 
-This setup document is derived from the repository configuration at upstream base `9f0fb6d082d17acf6a570e93b0c987c1f3ffc944` with Zed/GPUI submodule `4d80927168182a26f2820f8d7a06495c6d050123`.
+This setup document is currently aligned with upstream base `6f4865b8b66c9175e42bce75310cbdfc9407104d`, merged into this qualification branch at `90a6de0c19814d112b2e04c50b3d357d99310f18`, with Zed/GPUI submodule `4d80927168182a26f2820f8d7a06495c6d050123`.
 
 No Windows runtime command was executed while authoring this page. Runtime checks remain **NOT TESTED** until retained output from an actual Windows x64 run is attached to the qualification plan/evidence record.
